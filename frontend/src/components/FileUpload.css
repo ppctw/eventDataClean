@@ -1,0 +1,196 @@
+.file-upload {
+  padding: 40px;
+}
+
+.upload-area {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* 檔案輸入區 */
+.file-input-wrapper {
+  position: relative;
+}
+
+.file-input {
+  display: none;
+}
+
+.file-input-label {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 30px;
+  border: 3px dashed #667eea;
+  border-radius: 12px;
+  background: #f8f9ff;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  font-size: 1.1rem;
+  color: #495057;
+}
+
+.file-input-label:hover {
+  background: #eef0ff;
+  border-color: #764ba2;
+}
+
+.file-input:disabled + .file-input-label {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.file-input-label .icon {
+  font-size: 2rem;
+}
+
+/* 檔案資訊 */
+.file-info {
+  background: #f8f9fa;
+  padding: 20px;
+  border-radius: 8px;
+  border-left: 4px solid #667eea;
+}
+
+.file-info p {
+  margin: 5px 0;
+  color: #495057;
+}
+
+/* 進度條 */
+.progress-container {
+  margin: 20px 0;
+}
+
+.progress-bar {
+  width: 100%;
+  height: 30px;
+  background: #e9ecef;
+  border-radius: 15px;
+  overflow: hidden;
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+  transition: width 0.3s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-weight: bold;
+}
+
+.progress-text {
+  text-align: center;
+  margin-top: 10px;
+  color: #667eea;
+  font-weight: 600;
+}
+
+/* 訊息區 */
+.error-message,
+.success-message {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 15px 20px;
+  border-radius: 8px;
+  font-weight: 500;
+}
+
+.error-message {
+  background: #fff5f5;
+  color: #c53030;
+  border: 1px solid #fc8181;
+}
+
+.success-message {
+  background: #f0fff4;
+  color: #22543d;
+  border: 1px solid #68d391;
+}
+
+.error-message .icon,
+.success-message .icon {
+  font-size: 1.5rem;
+}
+
+/* 按鈕區 */
+.button-group {
+  display: flex;
+  gap: 15px;
+  margin-top: 10px;
+}
+
+.btn {
+  flex: 1;
+  padding: 15px 30px;
+  border: none;
+  border-radius: 8px;
+  font-size: 1.1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+}
+
+.btn-primary:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(102, 126, 234, 0.6);
+}
+
+.btn-primary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.btn-secondary {
+  background: #e9ecef;
+  color: #495057;
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background: #dee2e6;
+}
+
+.btn-secondary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.btn .icon {
+  font-size: 1.2rem;
+}
+
+/* 響應式設計 */
+@media (max-width: 768px) {
+  .file-upload {
+    padding: 20px;
+  }
+
+  .button-group {
+    flex-direction: column;
+  }
+
+  .btn {
+    width: 100%;
+  }
+
+  .file-input-label {
+    padding: 20px;
+    font-size: 1rem;
+  }
+}
