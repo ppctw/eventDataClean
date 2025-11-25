@@ -55,13 +55,18 @@ export async function processExcelFile(inputPath) {
     }
 
     // 7. 處理資料：依年級分組並加入手足資訊
-    const processedData = processExcelData(cleanedData);
+    const { gradeSheets, allStudents } = processExcelData(cleanedData);
 
     // 8. 建立新的工作簿
     const newWorkbook = XLSX.utils.book_new();
 
-    // 9. 為每個年級建立一個工作表
-    for (const [grade, students] of Object.entries(processedData)) {
+    // 9. 建立「總表」分頁（放在第一個）
+    const summarySheet = createSummarySheet(allStudents);
+    XLSX.utils.book_append_sheet(newWorkbook, summarySheet, '總表');
+    console.log(`建立分頁: 總表, 共 ${allStudents.length} 筆資料`);
+
+    // 10. 為每個年級建立一個工作表
+    for (const [grade, students] of Object.entries(gradeSheets)) {
       // 建立工作表名稱（Excel 工作表名稱有長度限制）
       const sheetName = grade.substring(0, 31); // Excel 限制 31 字元
       
@@ -74,7 +79,7 @@ export async function processExcelFile(inputPath) {
       console.log(`建立分頁: ${sheetName}, 共 ${students.length - 1} 筆資料`);
     }
 
-    // 10. 輸出檔案
+    // 11. 輸出檔案
     const outputPath = path.join(__dirname, '../../uploads', `processed-${Date.now()}.xlsx`);
     XLSX.writeFile(newWorkbook, outputPath);
 
@@ -97,14 +102,15 @@ export async function processExcelFile(inputPath) {
 /**
  * 處理 Excel 資料：依年級分組並加入手足資訊
  * @param {Array} rawData - 原始資料陣列
- * @returns {Object} - 依年級分組的資料物件
+ * @returns {Object} - 包含年級分組資料和所有學生資料
  */
 function processExcelData(rawData) {
   // 1. 建立家長對應表，用於判斷手足關係
   const parentMap = buildParentMap(rawData);
 
-  // 2. 依年級分組
+  // 2. 依年級分組，並收集所有處理過的學生資料
   const gradeGroups = {};
+  const allStudents = []; // 收集所有學生資料
 
   rawData.forEach((item, index) => {
     // 取得年級，若為空則歸類到「未分類」
@@ -120,7 +126,7 @@ function processExcelData(rawData) {
 
     // 組裝該筆資料
     const processedItem = {
-      項次: gradeGroups[grade].length + 1,
+      項次: gradeGroups[grade].length + 1, // 年級內的項次
       報名序號: item['報名序號'] || '',
       兒童姓名: item['兒童姓名'] || '',
       性別: item['性別'] || '',
@@ -135,10 +141,11 @@ function processExcelData(rawData) {
     };
 
     gradeGroups[grade].push(processedItem);
+    allStudents.push(processedItem); // 加入到總表
   });
 
   // 3. 將每個年級的資料轉換為二維陣列格式（用於 Excel 輸出）
-  const result = {};
+  const gradeSheets = {};
 
   for (const [grade, students] of Object.entries(gradeGroups)) {
     // 建立標題列
@@ -174,10 +181,67 @@ function processExcelData(rawData) {
     ]);
 
     // 合併標題列和資料列
-    result[grade] = [headers, ...rows];
+    gradeSheets[grade] = [headers, ...rows];
   }
 
-  return result;
+  return { gradeSheets, allStudents };
+}
+
+/**
+ * 建立總表分頁
+ * 將所有學生資料依報名序號排序
+ * @param {Array} allStudents - 所有學生資料
+ * @returns {Object} - Excel 工作表物件
+ */
+function createSummarySheet(allStudents) {
+  // 1. 依報名序號排序（正排序）
+  const sortedStudents = [...allStudents].sort((a, b) => {
+    const numA = parseInt(a.報名序號) || 0;
+    const numB = parseInt(b.報名序號) || 0;
+    return numA - numB;
+  });
+
+  // 2. 重新編號項次
+  const studentsWithNewIndex = sortedStudents.map((student, index) => ({
+    ...student,
+    項次: index + 1 // 總表的項次從 1 開始
+  }));
+
+  // 3. 建立標題列
+  const headers = [
+    '項次',
+    '報名序號',
+    '兒童姓名',
+    '性別',
+    '年級',
+    '學校',
+    '手足名稱',
+    '手足性別',
+    '手足年級',
+    '家長姓名',
+    '家長行動電話',
+    '備註'
+  ];
+
+  // 4. 建立資料列
+  const rows = studentsWithNewIndex.map(student => [
+    student.項次,
+    student.報名序號,
+    student.兒童姓名,
+    student.性別,
+    student.年級,
+    student.學校,
+    student.手足名稱,
+    student.手足性別,
+    student.手足年級,
+    student.家長姓名,
+    student.家長行動電話,
+    student.備註
+  ]);
+
+  // 5. 合併標題列和資料列，轉換為工作表
+  const sheetData = [headers, ...rows];
+  return XLSX.utils.aoa_to_sheet(sheetData);
 }
 
 /**
