@@ -54,9 +54,17 @@ router.post('/upload', upload.single('file'), async (req, res) => {
     }
 
     console.log('收到檔案:', req.file.originalname);
+    
+    // 取得過濾選項和排序選項
+    const filterOptions = {
+      hideCancelled: req.body.hideCancelled === 'true',
+      hideNoNumber: req.body.hideNoNumber === 'true',
+      sortBy: req.body.sortBy || 'registrationNumber'
+    };
+    console.log('過濾選項:', filterOptions);
 
     // 處理 Excel 檔案
-    const outputPath = await processExcelFile(req.file.path);
+    const outputPath = await processExcelFile(req.file.path, filterOptions);
 
     // 讀取處理後的檔案
     const fileBuffer = fs.readFileSync(outputPath);

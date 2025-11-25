@@ -3,20 +3,35 @@ import axios from 'axios';
 // API 基礎 URL
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
+export interface FilterOptions {
+  hideCancelled?: boolean;
+  hideNoNumber?: boolean;
+  sortBy?: 'registrationNumber' | 'originalIndex';
+}
+
 /**
  * 上傳 Excel 檔案並取得處理後的檔案
  * @param file - 要上傳的檔案
  * @param onProgress - 上傳進度回調函數
+ * @param filterOptions - 過濾選項
  * @returns Promise<Blob> - 處理後的檔案 Blob
  */
 export async function uploadExcelFile(
   file: File,
-  onProgress?: (progress: number) => void
+  onProgress?: (progress: number) => void,
+  filterOptions?: FilterOptions
 ): Promise<Blob> {
   try {
     // 建立 FormData 物件
     const formData = new FormData();
     formData.append('file', file);
+    
+    // 加入過濾選項和排序選項
+    if (filterOptions) {
+      formData.append('hideCancelled', String(filterOptions.hideCancelled || false));
+      formData.append('hideNoNumber', String(filterOptions.hideNoNumber || false));
+      formData.append('sortBy', filterOptions.sortBy || 'registrationNumber');
+    }
 
     // 發送 POST 請求
     const response = await axios.post(`${API_BASE_URL}/api/upload`, formData, {

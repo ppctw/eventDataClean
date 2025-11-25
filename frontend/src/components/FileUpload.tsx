@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { uploadExcelFile, downloadBlob } from '../api/uploadApi';
 import './FileUpload.css';
 
@@ -11,6 +11,24 @@ const FileUpload: React.FC = () => {
   const [errorMessage, setErrorMessage] = useState<string>('');
   const [processedBlob, setProcessedBlob] = useState<Blob | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  
+  // 過濾選項
+  const [hideCancelled, setHideCancelled] = useState<boolean>(false);
+  const [hideNoNumber, setHideNoNumber] = useState<boolean>(false);
+  
+  // 排序選項
+  const [sortBy, setSortBy] = useState<'registrationNumber' | 'originalIndex'>('registrationNumber');
+
+  /**
+   * 監聽排序方式變更，自動重新處理
+   */
+  useEffect(() => {
+    // 只有在已經處理成功的情況下才自動重新上傳
+    if (selectedFile && status === 'success' && processedBlob) {
+      handleUpload();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sortBy]);
 
   /**
    * 處理檔案選擇
@@ -51,9 +69,13 @@ const FileUpload: React.FC = () => {
       setErrorMessage('');
       setProgress(0);
 
-      // 上傳檔案
+      // 上傳檔案，並傳遞過濾選項和排序選項
       const blob = await uploadExcelFile(selectedFile, (progress) => {
         setProgress(progress);
+      }, {
+        hideCancelled,
+        hideNoNumber,
+        sortBy
       });
 
       setStatus('success');
@@ -119,6 +141,61 @@ const FileUpload: React.FC = () => {
             <p><strong>檔案大小:</strong> {(selectedFile.size / 1024).toFixed(2)} KB</p>
           </div>
         )}
+
+        {/* 排序選項 */}
+        <div className="sort-options">
+          <div className="sort-title">排序方式：</div>
+          <label className="radio-label">
+            <input
+              type="radio"
+              name="sortBy"
+              value="registrationNumber"
+              checked={sortBy === 'registrationNumber'}
+              onChange={(e) => setSortBy(e.target.value as 'registrationNumber' | 'originalIndex')}
+              disabled={status === 'uploading' || status === 'processing'}
+            />
+            <span>依報名序號排序</span>
+          </label>
+          <label className="radio-label">
+            <input
+              type="radio"
+              name="sortBy"
+              value="originalIndex"
+              checked={sortBy === 'originalIndex'}
+              onChange={(e) => setSortBy(e.target.value as 'registrationNumber' | 'originalIndex')}
+              disabled={status === 'uploading' || status === 'processing'}
+            />
+            <span>依原始項次排序</span>
+          </label>
+        </div>
+
+        {/* 過濾選項 */}
+        <div className="filter-options">
+          <label className="checkbox-label">
+            <input
+              type="checkbox"
+              checked={hideCancelled}
+              onChange={(e) => setHideCancelled(e.target.checked)}
+              disabled={status === 'uploading' || status === 'processing'}
+            />
+            <span>不顯示取消名單</span>
+          </label>
+          <label className="checkbox-label">
+            <input
+              type="checkbox"
+              checked={hideNoNumber}
+              onChange={(e) => setHideNoNumber(e.target.checked)}
+              disabled={status === 'uploading' || status === 'processing'}
+            />
+            <span>不顯示無序號名單</span>
+          </label>
+        </div>
+
+        {/* 處理提示 */}
+        <div className="info-message">
+          <span className="icon">ℹ️</span>
+          <span>系統會自動移除報名序號中的「不收費」文字，只保留數字</span>
+        </div>
 
         {/* 進度條 */}
         {(status === 'uploading' || status === 'processing') && (

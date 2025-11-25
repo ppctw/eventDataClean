@@ -6,11 +6,169 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 /**
+ * 設定工作表樣式（標題置中、內容靠右、自動欄寬）
+ * @param {Object} ws - Excel 工作表物件
+ * @param {Array} data - 資料陣列（包含標題列）
+ */
+function applySheetStyles(ws, data) {
+  if (!ws || !data || data.length === 0) return;
+
+  const range = XLSX.utils.decode_range(ws['!ref']);
+  const colCount = range.e.c + 1;
+  const rowCount = range.e.r + 1;
+
+  // 計算每欄的最大寬度（以標題為基準，內容超過才調整）
+  const colWidths = [];
+  
+  // 輔助函數：計算字串寬度
+  const calculateWidth = (str) => {
+    let width = 0;
+    for (let i = 0; i < str.length; i++) {
+      const char = str[i];
+      // 判斷是否為中文字、全形符號
+      if (char.match(/[\u4e00-\u9fa5\u3000-\u303f\uff00-\uffef]/)) {
+        width += 2.2; // 中文字寬度
+      } else {
+        width += 1.1; // 英文/數字寬度
+      }
+    }
+    return width;
+  };
+  
+  for (let C = 0; C < colCount; C++) {
+    // 1. 先取得標題列（第0列）的寬度作為基準
+    const headerCell = ws[XLSX.utils.encode_cell({ r: 0, c: C })];
+    let headerWidth = 8; // 預設最小寬度
+    if (headerCell && headerCell.v) {
+      headerWidth = calculateWidth(String(headerCell.v));
+    }
+    
+    // 2. 檢查內容列是否有超過標題寬度的
+    let maxContentWidth = 0;
+    for (let R = 1; R < rowCount; R++) {
+      const cellAddress = XLSX.utils.encode_cell({ r: R, c: C });
+      const cell = ws[cellAddress];
+      if (cell && cell.v) {
+        const cellValue = String(cell.v);
+        const width = calculateWidth(cellValue);
+        maxContentWidth = Math.max(maxContentWidth, width);
+      }
+    }
+    
+    // 3. 如果內容寬度超過標題，使用內容寬度；否則使用標題寬度
+    const finalWidth = maxContentWidth > headerWidth ? maxContentWidth : headerWidth;
+    colWidths.push({ wch: Math.ceil(finalWidth) + 1 }); // 向上取整並加1作為邊距
+  }
+  ws['!cols'] = colWidths;
+
+  // 設定儲存格樣式
+  // 取得標題列，用於判斷欄位名稱
+  const headers = [];
+  for (let C = 0; C < colCount; C++) {
+    const headerCell = ws[XLSX.utils.encode_cell({ r: 0, c: C })];
+    headers.push(headerCell && headerCell.v ? String(headerCell.v) : '');
+  }
+
+  for (let R = 0; R <= range.e.r; R++) {
+    for (let C = 0; C <= range.e.c; C++) {
+      const cellAddress = XLSX.utils.encode_cell({ r: R, c: C });
+      if (!ws[cellAddress]) continue;
+
+      // 初始化樣式物件
+      if (!ws[cellAddress].s) {
+        ws[cellAddress].s = {};
+      }
+
+      // 第一列（標題列）：全部置中
+      if (R === 0) {
+        ws[cellAddress].s.alignment = { 
+          horizontal: 'center', 
+          vertical: 'center',
+          wrapText: false
+        };
+      } 
+      // 內容列：根據欄位名稱決定對齊方式
+      else {
+        const columnName = headers[C];
+        
+        // 家長行動電話：設定為字串格式並靠左對齊
+        if (columnName === '家長行動電話') {
+          ws[cellAddress].t = 's'; // 設定為字串類型
+          ws[cellAddress].s.alignment = { 
+            horizontal: 'left', 
+            vertical: 'center',
+            wrapText: false
+          };
+        }
+        // 家長姓名：靠左對齊
+        else if (columnName === '家長姓名') {
+          ws[cellAddress].s.alignment = { 
+            horizontal: 'left', 
+            vertical: 'center',
+            wrapText: false
+          };
+        }
+        // 項次、報名序號、兒童姓名、性別、年級：置中對齊
+        else if (['項次', '報名序號', '兒童姓名', '性別', '年級'].includes(columnName)) {
+          ws[cellAddress].s.alignment = { 
+            horizontal: 'center', 
+            vertical: 'center',
+            wrapText: false
+          };
+        }
+        // 其他欄位：靠右對齊（預設）
+        else {
+          ws[cellAddress].s.alignment = { 
+            horizontal: 'right', 
+            vertical: 'center',
+            wrapText: false
+          };
+        }
+      }
+    }
+  }
+}
+
+/**
+ * 解析手足資料字串
+ * 輸入格式：小明（男, 二年級）、小美（女, 四年級）
+ * 輸出：{ names: ['小明', '小美'], genders: ['男', '女'], grades: ['二年級', '四年級'] }
+ */
+function parseSiblingString(siblingStr) {
+  // 如果是空值或「無」，返回空陣列
+  if (!siblingStr || siblingStr === '無' || String(siblingStr).trim() === '') {
+    return { names: [], genders: [], grades: [] };
+  }
+
+  const names = [];
+  const genders = [];
+  const grades = [];
+
+  // 使用正則表達式找出所有符合「姓名（性別, 年級）」格式的手足
+  // 支援全形和半形括號
+  const pattern = /([^、，,]+?)[（(]([^,，]+?)[,，]\s*([^）)]+?)[）)]/g;
+  
+  let match;
+  while ((match = pattern.exec(String(siblingStr))) !== null) {
+    const [, name, gender, grade] = match;
+    names.push(name.trim());
+    genders.push(gender.trim());
+    grades.push(grade.trim());
+  }
+
+  return { names, genders, grades };
+}
+
+/**
  * 處理 Excel 檔案的主函數
  * @param {string} inputPath - 輸入檔案路徑
+ * @param {Object} filterOptions - 過濾選項
+ * @param {boolean} filterOptions.hideCancelled - 不顯示取消
+ * @param {boolean} filterOptions.hideNoNumber - 不顯示無序號
+ * @param {string} filterOptions.sortBy - 排序方式 ('registrationNumber' | 'originalIndex')
  * @returns {Promise<string>} - 輸出檔案路徑
  */
-export async function processExcelFile(inputPath) {
+export async function processExcelFile(inputPath, filterOptions = {}) {
   try {
     // 1. 讀取 Excel 檔案
     const workbook = XLSX.readFile(inputPath);
@@ -19,8 +177,33 @@ export async function processExcelFile(inputPath) {
     const firstSheetName = workbook.SheetNames[0];
     const worksheet = workbook.Sheets[firstSheetName];
     
-    // 3. 將工作表轉換為 JSON 格式
-    const rawData = XLSX.utils.sheet_to_json(worksheet);
+    // 3. 嘗試不同的起始列來找到正確的資料
+    let rawData = null;
+    let headerRowIndex = 0;
+    
+    // 嘗試從第 0 列到第 10 列，找到包含「兒童姓名」或「報名序號」的標題列
+    for (let skipRows = 0; skipRows <= 10; skipRows++) {
+      const testData = XLSX.utils.sheet_to_json(worksheet, { range: skipRows });
+      
+      if (testData.length > 0) {
+        const firstRow = testData[0];
+        const columns = Object.keys(firstRow);
+        
+        // 檢查是否包含關鍵欄位
+        if (columns.some(col => col.includes('兒童姓名') || col.includes('報名序號') || col.includes('姓名'))) {
+          rawData = testData;
+          headerRowIndex = skipRows;
+          console.log(`找到標題列於第 ${skipRows + 1} 列`);
+          break;
+        }
+      }
+    }
+    
+    // 如果找不到標題列，使用預設的第一列
+    if (!rawData) {
+      console.warn('未找到標準標題列，使用第一列作為標題');
+      rawData = XLSX.utils.sheet_to_json(worksheet);
+    }
     
     console.log(`讀取到 ${rawData.length} 筆資料`);
     
@@ -34,7 +217,18 @@ export async function processExcelFile(inputPath) {
       const cleanedRow = {};
       for (const [key, value] of Object.entries(row)) {
         // 清理欄位名稱：移除 \r\n, \n, \r 和多餘空格
-        const cleanKey = key.replace(/[\r\n]+/g, '').trim();
+        let cleanKey = key.replace(/[\r\n]+/g, '').trim();
+        
+        // 處理特殊情況：合併儲存格導致的欄位名稱錯誤
+        // '(收費同工)報名序號_1' 實際上是「兒童姓名」欄位
+        if (cleanKey.includes('報名序號_1') || cleanKey === '(收費同工)報名序號_1') {
+          cleanKey = '兒童姓名';
+        }
+        // '(收費同工)報名序號' 實際上是「報名序號」欄位
+        if (cleanKey === '(收費同工)報名序號') {
+          cleanKey = '報名序號';
+        }
+        
         cleanedRow[cleanKey] = value;
       }
       return cleanedRow;
@@ -44,6 +238,7 @@ export async function processExcelFile(inputPath) {
     const firstRow = cleanedData[0];
     const availableColumns = Object.keys(firstRow);
     console.log('Excel 中的欄位（已清理）:', availableColumns);
+    console.log('第一筆資料範例:', firstRow);
     
     // 必要欄位列表
     const requiredColumns = ['兒童姓名', '性別', '年級', '學校', '家長姓名', '家長行動電話'];
@@ -54,29 +249,58 @@ export async function processExcelFile(inputPath) {
       console.warn('系統將繼續處理，但這些欄位的資料會是空值');
     }
 
+    // 6.5. 根據過濾選項過濾資料
+    let filteredData = cleanedData;
+    
+    if (filterOptions.hideCancelled) {
+      filteredData = filteredData.filter(row => {
+        const registrationNumber = String(row['報名序號'] || '').trim();
+        // 只要包含「取消」兩個字就過濾掉
+        return !registrationNumber.includes('取消');
+      });
+      console.log(`過濾「取消名單」後剩餘 ${filteredData.length} 筆資料`);
+    }
+    
+    if (filterOptions.hideNoNumber) {
+      filteredData = filteredData.filter(row => {
+        const registrationNumber = String(row['報名序號'] || '').trim();
+        return registrationNumber !== '' && registrationNumber !== '無';
+      });
+      console.log(`過濾「無序號名單」後剩餘 ${filteredData.length} 筆資料`);
+    }
+
     // 7. 處理資料：依年級分組並加入手足資訊
-    const { gradeSheets, allStudents } = processExcelData(cleanedData);
+    const { gradeSheets, allStudents } = processExcelData(filteredData);
 
     // 8. 建立新的工作簿
     const newWorkbook = XLSX.utils.book_new();
 
     // 9. 建立「總表」分頁（放在第一個）
-    const summarySheet = createSummarySheet(allStudents);
+    const { sheet: summarySheet, data: summaryData } = createSummarySheet(allStudents, filterOptions.sortBy);
+    applySheetStyles(summarySheet, summaryData);
     XLSX.utils.book_append_sheet(newWorkbook, summarySheet, '總表');
     console.log(`建立分頁: 總表, 共 ${allStudents.length} 筆資料`);
 
     // 10. 為每個年級建立一個工作表
-    for (const [grade, students] of Object.entries(gradeSheets)) {
+    for (const [grade, sheetInfo] of Object.entries(gradeSheets)) {
       // 建立工作表名稱（Excel 工作表名稱有長度限制）
       const sheetName = grade.substring(0, 31); // Excel 限制 31 字元
       
       // 將資料轉換為工作表
-      const ws = XLSX.utils.aoa_to_sheet(students);
+      const ws = XLSX.utils.aoa_to_sheet(sheetInfo.data);
+      
+      // 設定合併儲存格
+      if (sheetInfo.merges && sheetInfo.merges.length > 0) {
+        ws['!merges'] = sheetInfo.merges;
+      }
+      
+      // 設定樣式和欄寬
+      applySheetStyles(ws, sheetInfo.data);
       
       // 加入到工作簿
       XLSX.utils.book_append_sheet(newWorkbook, ws, sheetName);
       
-      console.log(`建立分頁: ${sheetName}, 共 ${students.length - 1} 筆資料`);
+      console.log(`建立分頁: ${sheetName}, 共 ${sheetInfo.data.length - 1} 筆資料`);
     }
 
     // 11. 輸出檔案
@@ -124,11 +348,32 @@ function processExcelData(rawData) {
     // 取得手足資訊
     const siblings = getSiblings(item, parentMap);
 
-    // 組裝該筆資料
+    // 處理家長行動電話：如果是 9 開頭，補上 0
+    let phoneNumber = item['家長行動電話'] || '';
+    if (phoneNumber) {
+      phoneNumber = String(phoneNumber).trim();
+      // 如果是 9 開頭且長度為 9 位數，前面補 0
+      if (/^9\d{8}$/.test(phoneNumber)) {
+        phoneNumber = '0' + phoneNumber;
+      }
+    }
+
+    // 處理報名序號：如果包含「不收費」，只保留數字
+    let registrationNumber = item['報名序號'] || '';
+    if (registrationNumber) {
+      registrationNumber = String(registrationNumber).trim();
+      // 如果包含「不收費」，移除所有中文字，只保留數字
+      if (registrationNumber.includes('不收費')) {
+        registrationNumber = registrationNumber.replace(/[^\d]/g, '');
+      }
+    }
+
+    // 組裝該筆資料（支援多種欄位名稱）
     const processedItem = {
+      原始項次: index + 1, // 使用資料的順序位置（從1開始）
       項次: gradeGroups[grade].length + 1, // 年級內的項次
-      報名序號: item['報名序號'] || '',
-      兒童姓名: item['兒童姓名'] || '',
+      報名序號: registrationNumber,
+      兒童姓名: item['兒童姓名'] || item['姓名'] || item['孩童姓名'] || '',
       性別: item['性別'] || '',
       年級: item['年級'] || '',
       學校: item['學校'] || '',
@@ -136,7 +381,7 @@ function processExcelData(rawData) {
       手足性別: siblings.genders.join(', ') || '無',
       手足年級: siblings.grades.join(', ') || '無',
       家長姓名: item['家長姓名'] || '',
-      家長行動電話: item['家長行動電話'] || '',
+      家長行動電話: phoneNumber,
       備註: item['備註'] || ''
     };
 
@@ -164,24 +409,81 @@ function processExcelData(rawData) {
       '備註'
     ];
 
-    // 建立資料列
-    const rows = students.map(student => [
-      student.項次,
-      student.報名序號,
-      student.兒童姓名,
-      student.性別,
-      student.年級,
-      student.學校,
-      student.手足名稱,
-      student.手足性別,
-      student.手足年級,
-      student.家長姓名,
-      student.家長行動電話,
-      student.備註
-    ]);
+    // 建立資料列（只展開手足，不保留原始列）
+    const rows = [];
+    const merges = [];  // 記錄需要合併的儲存格
+    let currentIndex = 1;
+    let rowIndex = 1;  // Excel 列索引（從1開始，0是標題列）
+
+    students.forEach(student => {
+      // 展開手足資料成多列（每個手足一列）
+      const siblingNames = student.手足名稱 && student.手足名稱 !== '無' 
+        ? student.手足名稱.split(',').map(s => s.trim()).filter(s => s !== '')
+        : [];
+      const siblingGenders = student.手足性別 && student.手足性別 !== '無'
+        ? student.手足性別.split(',').map(s => s.trim()).filter(s => s !== '')
+        : [];
+      const siblingGrades = student.手足年級 && student.手足年級 !== '無'
+        ? student.手足年級.split(',').map(s => s.trim()).filter(s => s !== '')
+        : [];
+
+      const startRow = rowIndex;  // 記錄起始列
+
+      // 如果沒有手足，輸出一列（手足欄位為空）
+      if (siblingNames.length === 0) {
+        rows.push([
+          currentIndex,
+          student.報名序號,
+          student.兒童姓名,
+          student.性別,
+          student.年級,
+          student.學校,
+          '',  // 手足名稱為空
+          '',  // 手足性別為空
+          '',  // 手足年級為空
+          student.家長姓名,
+          student.家長行動電話,
+          student.備註
+        ]);
+        rowIndex++;
+      } else {
+        // 為每個手足產生一列
+        siblingNames.forEach((siblingName, idx) => {
+          rows.push([
+            currentIndex,
+            student.報名序號,
+            student.兒童姓名,
+            student.性別,
+            student.年級,
+            student.學校,
+            siblingName,  // 單一手足名稱（不含逗號）
+            siblingGenders[idx] || '',  // 單一手足性別
+            siblingGrades[idx] || '',   // 單一手足年級
+            student.家長姓名,
+            student.家長行動電話,
+            student.備註
+          ]);
+          rowIndex++;
+        });
+
+        // 如果有多個手足，需要合併基本資料欄位
+        if (siblingNames.length > 1) {
+          const endRow = rowIndex - 1;
+          // 合併欄位：項次(0), 報名序號(1), 兒童姓名(2), 性別(3), 年級(4), 學校(5), 家長姓名(9), 家長行動電話(10)
+          [0, 1, 2, 3, 4, 5, 9, 10].forEach(col => {
+            merges.push({
+              s: { r: startRow, c: col },  // start
+              e: { r: endRow, c: col }     // end
+            });
+          });
+        }
+      }
+
+      currentIndex++;
+    });
 
     // 合併標題列和資料列
-    gradeSheets[grade] = [headers, ...rows];
+    gradeSheets[grade] = { data: [headers, ...rows], merges };
   }
 
   return { gradeSheets, allStudents };
@@ -189,25 +491,33 @@ function processExcelData(rawData) {
 
 /**
  * 建立總表分頁
- * 將所有學生資料依報名序號排序
+ * 將所有學生資料排序，並展開手足資料
  * @param {Array} allStudents - 所有學生資料
+ * @param {string} sortBy - 排序方式 ('registrationNumber' | 'originalIndex')
  * @returns {Object} - Excel 工作表物件
  */
-function createSummarySheet(allStudents) {
-  // 1. 依報名序號排序（正排序）
-  const sortedStudents = [...allStudents].sort((a, b) => {
-    const numA = parseInt(a.報名序號) || 0;
-    const numB = parseInt(b.報名序號) || 0;
-    return numA - numB;
-  });
+function createSummarySheet(allStudents, sortBy = 'registrationNumber') {
+  // 1. 根據排序選項排序
+  let sortedStudents;
+  if (sortBy === 'originalIndex') {
+    // 依原始項次排序（保持上傳檔案的順序）
+    sortedStudents = [...allStudents].sort((a, b) => {
+      const numA = parseInt(a.原始項次) || 0;
+      const numB = parseInt(b.原始項次) || 0;
+      return numA - numB;
+    });
+    console.log('總表排序方式: 依原始項次');
+  } else {
+    // 依報名序號排序（預設）
+    sortedStudents = [...allStudents].sort((a, b) => {
+      const numA = parseInt(a.報名序號) || 0;
+      const numB = parseInt(b.報名序號) || 0;
+      return numA - numB;
+    });
+    console.log('總表排序方式: 依報名序號');
+  }
 
-  // 2. 重新編號項次
-  const studentsWithNewIndex = sortedStudents.map((student, index) => ({
-    ...student,
-    項次: index + 1 // 總表的項次從 1 開始
-  }));
-
-  // 3. 建立標題列
+  // 2. 建立標題列
   const headers = [
     '項次',
     '報名序號',
@@ -223,25 +533,92 @@ function createSummarySheet(allStudents) {
     '備註'
   ];
 
-  // 4. 建立資料列
-  const rows = studentsWithNewIndex.map(student => [
-    student.項次,
-    student.報名序號,
-    student.兒童姓名,
-    student.性別,
-    student.年級,
-    student.學校,
-    student.手足名稱,
-    student.手足性別,
-    student.手足年級,
-    student.家長姓名,
-    student.家長行動電話,
-    student.備註
-  ]);
+  // 3. 建立資料列（只展開手足，不保留原始列）
+  const dataRows = [];
+  const merges = [];  // 記錄需要合併的儲存格
+  let currentIndex = 1;
+  let rowIndex = 1;  // Excel 列索引（從1開始，0是標題列）
 
-  // 5. 合併標題列和資料列，轉換為工作表
-  const sheetData = [headers, ...rows];
-  return XLSX.utils.aoa_to_sheet(sheetData);
+  sortedStudents.forEach(student => {
+    // 展開手足資料成多列（每個手足一列）
+    const siblingNames = student.手足名稱 && student.手足名稱 !== '無' 
+      ? student.手足名稱.split(',').map(s => s.trim()).filter(s => s !== '')
+      : [];
+    const siblingGenders = student.手足性別 && student.手足性別 !== '無'
+      ? student.手足性別.split(',').map(s => s.trim()).filter(s => s !== '')
+      : [];
+    const siblingGrades = student.手足年級 && student.手足年級 !== '無'
+      ? student.手足年級.split(',').map(s => s.trim()).filter(s => s !== '')
+      : [];
+
+    const startRow = rowIndex;  // 記錄起始列
+    
+    // 決定項次：如果是依原始項次排序，使用原始項次；否則重新編號
+    const displayIndex = sortBy === 'originalIndex' ? student.原始項次 : currentIndex;
+
+    // 如果沒有手足，輸出一列（手足欄位為空）
+    if (siblingNames.length === 0) {
+      dataRows.push([
+        displayIndex,
+        student.報名序號,
+        student.兒童姓名,
+        student.性別,
+        student.年級,
+        student.學校,
+        '',  // 手足名稱為空
+        '',  // 手足性別為空
+        '',  // 手足年級為空
+        student.家長姓名,
+        student.家長行動電話,
+        student.備註
+      ]);
+      rowIndex++;
+    } else {
+      // 為每個手足產生一列
+      siblingNames.forEach((siblingName, idx) => {
+        dataRows.push([
+          displayIndex,
+          student.報名序號,
+          student.兒童姓名,
+          student.性別,
+          student.年級,
+          student.學校,
+          siblingName,  // 單一手足名稱（不含逗號）
+          siblingGenders[idx] || '',  // 單一手足性別
+          siblingGrades[idx] || '',   // 單一手足年級
+          student.家長姓名,
+          student.家長行動電話,
+          student.備註
+        ]);
+        rowIndex++;
+      });
+
+      // 如果有多個手足，需要合併基本資料欄位
+      if (siblingNames.length > 1) {
+        const endRow = rowIndex - 1;
+        // 合併欄位：項次(0), 報名序號(1), 兒童姓名(2), 性別(3), 年級(4), 學校(5), 家長姓名(9), 家長行動電話(10)
+        [0, 1, 2, 3, 4, 5, 9, 10].forEach(col => {
+          merges.push({
+            s: { r: startRow, c: col },  // start
+            e: { r: endRow, c: col }     // end
+          });
+        });
+      }
+    }
+
+    currentIndex++;
+  });
+
+  // 4. 合併標題列和資料列，轉換為工作表
+  const sheetData = [headers, ...dataRows];
+  const ws = XLSX.utils.aoa_to_sheet(sheetData);
+  
+  // 設定合併儲存格
+  if (merges.length > 0) {
+    ws['!merges'] = merges;
+  }
+  
+  return { sheet: ws, data: sheetData };
 }
 
 /**
@@ -268,9 +645,9 @@ function buildParentMap(rawData) {
       parentMap.set(trimmedParentName, []);
     }
 
-    // 加入孩子資訊
+    // 加入孩子資訊（支援多種欄位名稱）
     parentMap.get(trimmedParentName).push({
-      兒童姓名: item['兒童姓名'] || '',
+      兒童姓名: item['兒童姓名'] || item['姓名'] || item['孩童姓名'] || '',
       性別: item['性別'] || '',
       年級: item['年級'] || ''
     });
@@ -286,8 +663,17 @@ function buildParentMap(rawData) {
  * @returns {Object} - 手足資訊 { names: [], genders: [], grades: [] }
  */
 function getSiblings(currentChild, parentMap) {
+  // 優先檢查是否有「兄弟姊妹」或「手足」欄位（格式：姓名（性別, 年級）、姓名（性別, 年級））
+  const siblingField = currentChild['兄弟姊妹'] || currentChild['手足'] || currentChild['兄弟姐妹'];
+  
+  if (siblingField && String(siblingField).trim() !== '' && String(siblingField).trim() !== '無') {
+    // 使用字串解析方式
+    return parseSiblingString(siblingField);
+  }
+
+  // 否則使用家長姓名判斷手足關係（原有邏輯）
   const parentName = currentChild['家長姓名'];
-  const currentChildName = currentChild['兒童姓名'];
+  const currentChildName = currentChild['兒童姓名'] || currentChild['姓名'] || currentChild['孩童姓名'];
 
   // 若家長姓名為空，則無手足
   if (!parentName || String(parentName).trim() === '') {
